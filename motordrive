@@ -1,0 +1,144 @@
+#!/usr/bin/python
+
+from __future__ import division
+from twisted.internet import reactor, tksupport
+import Tkinter as tk
+import time, atexit
+from louie import dispatcher
+import parport
+parport.getparport()
+
+
+class Ctl:
+    def __init__(self):
+        self.blade = False
+        self.xpos = 0
+        self.ypos = 0
+
+        dispatcher.connect(self.dragTo, "dragto")
+        self.path = [] # future points to walk to
+        self.lastByteTime = 0
+
+    def dragTo(self, x, y):
+        self.path.append((x,y))
+        #print "drag to", x, y, len(self.path)
+        dispatcher.send("new path", path=self.path)
+
+    def step(self):
+        start = time.time()
+        while time.time() - start < .05:
+            self._step()
+
+    def _step(self):
+        if not self.path:
+            return
+        goal = self.path[0]
+        if (self.xpos, self.ypos) == goal:
+            self.path.pop(0)
+            dispatcher.send("new path", path=self.path)
+            return
+        self.move(cmp(goal[0], self.xpos),
+                  cmp(goal[1], self.ypos))
+
+    def move(self, dx, dy):
+        self.xpos += dx
+        self.ypos += dy
+        dispatcher.send("coords", x=self.xpos, y=self.ypos)
+        #print "x=%d y=%d" % (self.xpos, self.ypos)
+        self.update()
+
+    def update(self):
+        byte = 0
+        if self.blade:
+            byte |= 0x80
+
+        byte |= (0x01, 0x03, 0x02, 0x00)[self.xpos % 4] * 0x20
+        byte |= (0x01, 0x03, 0x02, 0x00)[self.ypos % 4] * 0x04
+
+        byte |= 0x01 # power pin
+        byte |= 0x02 | 0x10 # enable dirs
+
+        now = time.time()
+        print "%.1fms delay between bytes" % ((now - self.lastByteTime) * 1000)
+        self.out(byte)
+        self.lastByteTime = now
+        
+    def out(self, byte):
+        #print hex(byte)
+        parport.outdata(byte)
+        time.sleep(.003)
+
+    def toggleBlade(self):
+        self.blade = not self.blade
+        if self.blade:
+            # blade needs full power to go down
+            self.out(0x80)
+            time.sleep(.05)
+        self.update()
+
+class Canv(tk.Canvas):
+    def __init__(self, master, **kw):
+        tk.Canvas.__init__(self, master, **kw)
+        self.create_line(0,0,0,0, tags='cursorx')
+        self.create_line(0,0,0,0, tags='cursory')
+        dispatcher.connect(self.updateCursor, "coords")
+        dispatcher.connect(self.drawPath, "new path")
+        self.bind("<B1-Motion>", self.b1motion)
+
+    def canFromWorld(self, wx, wy):
+        return -wx / 5 + 300, wy / 5 + 300
+
+    def worldFromCan(self, cx, cy):
+        return -(cx - 300) * 5, (cy - 300) * 5
+
+    def updateCursor(self, x, y):
+        x,y = self.canFromWorld(x, y)
+        self.coords('cursorx', x-10, y, x+10, y)
+        self.coords('cursory', x, y-10, x, y+10)
+
+    def b1motion(self, ev):
+        wx,wy = self.worldFromCan(ev.x, ev.y)
+        dispatcher.send("dragto", x=wx, y=wy)
+
+    def drawPath(self, path):
+        self.delete('path')
+        pts = []
+        for pt in path:
+            pts.extend(self.canFromWorld(*pt))
+        if len(pts) >= 4:
+            self.create_line(*pts, **dict(tag='path'))
+        
+root = tk.Tk()
+
+
+ctl = Ctl()
+
+can = Canv(root, width=900, height=900)
+can.pack()
+
+for key, byte in [
+    ('0', 0),
+    ]:
+    root.bind("<Key-%s>" % key, lambda ev, byte=byte: ctl.out(byte))
+
+for key, xy in [('Left', (-1, 0)),
+                ('Right', (1, 0)),
+                ('Up', (0, -1)),
+                ('Down', (0, 1))]:
+    root.bind("<Key-%s>" % key, lambda ev, xy=xy: ctl.move(*xy))
+
+root.bind("<Key-space>", lambda ev: ctl.toggleBlade())
+
+ctl.move(0,0)
+
+atexit.register(lambda: ctl.out(0))
+
+def loop():
+    ctl.step()
+    root.after(10, loop)
+loop()
+
+tksupport.install(root, ms=5)
+root.protocol('WM_DELETE_WINDOW', reactor.stop)
+reactor.run()
+
