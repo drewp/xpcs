@@ -1,0 +1,50 @@
+from twisted.web import xmlrpc, server
+from twisted.internet import reactor, task
+import motorctl
+
+class RPC(xmlrpc.XMLRPC):
+    def __init__(self, ctl):
+        self.ctl = ctl
+        self.loopDelay = .05
+        self.loop = task.LoopingCall(self.ctl.step, runFor=.05)
+        self.loop.start(self.loopDelay)
+
+
+    def report(self):
+        print "current pos: %s %s blade=%s" % (self.ctl.xpos, self.ctl.ypos,
+                                               self.ctl.blade)
+    def xmlrpc_getPosition(self):
+        """(x, y, blade)"""
+        return self.ctl.xpos, self.ctl.ypos, self.ctl.blade
+
+    def xmlrpc_lineTo(self, x, y, blade):
+        self.report()
+        self.ctl.dragTo(x, y, blade=blade)
+        return "ok"
+
+    def xmlrpc_pause(self):
+        """no blade change, keep position"""
+        if self.loop.running:
+            self.loop.stop()
+        return "ok"
+
+    def xmlrpc_resume(self):
+        if not self.loop.running:
+            self.loop.start(self.loopDelay)
+        return "ok"
+
+    def xmlrpc_stop(self):
+        """disable all power, which raises blade and may move
+        head. Forget all paths in progress"""
+        self.ctl.off()
+        self.ctl.path = []
+        self.xmlrpc_resume()
+        return "ok"
+
+ctl = motorctl.Ctl()
+
+serv = RPC(ctl)
+reactor.listenTCP(9001, server.Site(serv))
+print "listening on 9001"
+
+reactor.run()

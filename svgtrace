@@ -1,43 +1,38 @@
 from __future__ import division
-import time, sys
+import time, sys, xmlrpclib, atexit
 from IPython.Shell import IPShellEmbed
 from elementtree.ElementTree import ElementTree
 import Numeric as num
 import pygame
 
-def walk(node):
-    for c in node.getchildren():
-        if c.tag == '{http://www.w3.org/2000/svg}path':
-            tracePath(c)
-        walk(c)
 
 class Motors:
     pos = (0,0)
-    scl = 1.8
+    scl = num.array([1 / 6]) * [-1, 1] # display scaling only
     def __init__(self):
-        self.pos = num.array([0, 0])
-        self._blade = "up"
-        self.surf = pygame.display.set_mode(num.array([360, 360]) * self.scl)
+        self.pos = num.array(ctl.getPosition()[:2])
+        self._blade = ctl.getPosition()[2]
+        self.surf = pygame.display.set_mode(num.array([460, 460]))
         self.lastUpdateTime = 0
 
-    def blade(self, which="up"):
+    def blade(self, which=False):
         if self._blade == which:
             return
         self._blade = which
         
     def moveTo(self, p2):
         """walk to p2 via a 45-degree line and an ortho line"""
-        while self.pos != num.floor(p2):
-            d = num.sign(num.floor(p2) - self.pos)
-            # step(*d)
-            self.pos = self.pos + d
-            pygame.draw.line(self.surf,
-                             {"down" : (255, 255, 255),
-                              "up" : (250,  100, 100)}[self._blade],
-                             self.pos * self.scl, self.pos * self.scl)
-            if time.time() - self.lastUpdateTime > .1:
-                pygame.display.update()
-                self.lastUpdateTime = time.time()
+        ctl.lineTo(p2[0], p2[1], self._blade)
+
+        pygame.draw.line(self.surf,
+                         {True : (255, 255, 255),
+                          False : (250,  100, 100)}[self._blade],
+                         p2 * self.scl, self.pos * self.scl)
+        self.pos = p2
+
+        if time.time() - self.lastUpdateTime > .3:
+            pygame.display.update()
+            self.lastUpdateTime = time.time()
 
     def lineTo(self, p2):
         """proper line to p2"""            
@@ -48,32 +43,35 @@ class Motors:
             p = num.floor(startPos + (p2 - startPos) * step / (steps - 1))
             self.moveTo(p)
 
-motors = Motors()
+def stepFromPt(pt):
+    return num.array(pt) * 6 * 8/7 * (-1, 1) * 360/600 * 600/7000 * .9
 
 def tracePath(path):
+    stepFraction = .2
+    print "trace path"
     data = parsePathD(path.get('d'))
     for stepType, stepPts in data:
+        print "next part:", stepType, stepPts[0]
         if stepType == 'M':
-            motors.blade("up")
-            motors.moveTo(stepPts[0])
+            motors.blade(False)
+            motors.moveTo(stepFromPt(stepPts[0]))
         if stepType == 'L':
-            motors.blade("down")
-            motors.lineTo(stepPts[0])
+            motors.blade(True)
+            motors.lineTo(stepFromPt(stepPts[0]))
         if stepType == 'C':
-            motors.blade("down")
+            motors.blade(True)
             # 3 points for the curve
-            startCtl, endCtl = stepPts[0], stepPts[1]
+            startCtl, endCtl = stepFromPt(stepPts[0]), stepFromPt(stepPts[1])
             startPos = motors.pos
-            endPos = stepPts[2]
-            steps = max(num.absolute(endPos - startPos))
+            endPos = stepFromPt(stepPts[2])
+            steps = max(num.absolute(endPos - startPos)) * stepFraction
             for t in range(steps + 1):
                 t /= steps
                 p = (    (1 - t)**3 *        startPos+
-                     3 * (1 - t)**2 * t *    startCtl +
-                     3 * (1 - t) *    t**2 * endCtl +
+                     3 * (1 - t)**2 * t    * startCtl+
+                     3 * (1 - t)    * t**2 * endCtl+
                                       t**3 * endPos)
                 motors.lineTo(p)
-#            motors.lineTo(stepPts[2])
 
 def parsePathD(data):
     words = data.split()
@@ -88,13 +86,22 @@ def parsePathD(data):
                    for loop in range(3)]
             ret.append(('C', pts))
     return ret
-    
+
+def walk(node):
+    for c in node.getchildren():
+        if c.tag == '{http://www.w3.org/2000/svg}path':
+            tracePath(c)
+        walk(c)
+
+
+ctl = xmlrpclib.ServerProxy("http://localhost:9001")
+atexit.register(ctl.stop)
+motors = Motors()
     
 t = ElementTree(file=open(sys.argv[1]))
 walk(t.getroot())
 
 #IPShellEmbed()()
-
 
 print "done"
 pygame.display.update()

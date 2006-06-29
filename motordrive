@@ -5,76 +5,8 @@ from twisted.internet import reactor, tksupport
 import Tkinter as tk
 import time, atexit
 from louie import dispatcher
-import parport
-parport.getparport()
 
-
-class Ctl:
-    def __init__(self):
-        self.blade = False
-        self.xpos = 0
-        self.ypos = 0
-
-        dispatcher.connect(self.dragTo, "dragto")
-        self.path = [] # future points to walk to
-        self.lastByteTime = 0
-
-    def dragTo(self, x, y):
-        self.path.append((x,y))
-        #print "drag to", x, y, len(self.path)
-        dispatcher.send("new path", path=self.path)
-
-    def step(self):
-        start = time.time()
-        while time.time() - start < .05:
-            self._step()
-
-    def _step(self):
-        if not self.path:
-            return
-        goal = self.path[0]
-        if (self.xpos, self.ypos) == goal:
-            self.path.pop(0)
-            dispatcher.send("new path", path=self.path)
-            return
-        self.move(cmp(goal[0], self.xpos),
-                  cmp(goal[1], self.ypos))
-
-    def move(self, dx, dy):
-        self.xpos += dx
-        self.ypos += dy
-        dispatcher.send("coords", x=self.xpos, y=self.ypos)
-        #print "x=%d y=%d" % (self.xpos, self.ypos)
-        self.update()
-
-    def update(self):
-        byte = 0
-        if self.blade:
-            byte |= 0x80
-
-        byte |= (0x01, 0x03, 0x02, 0x00)[self.xpos % 4] * 0x20
-        byte |= (0x01, 0x03, 0x02, 0x00)[self.ypos % 4] * 0x04
-
-        byte |= 0x01 # power pin
-        byte |= 0x02 | 0x10 # enable dirs
-
-        now = time.time()
-        print "%.1fms delay between bytes" % ((now - self.lastByteTime) * 1000)
-        self.out(byte)
-        self.lastByteTime = now
-        
-    def out(self, byte):
-        #print hex(byte)
-        parport.outdata(byte)
-        time.sleep(.003)
-
-    def toggleBlade(self):
-        self.blade = not self.blade
-        if self.blade:
-            # blade needs full power to go down
-            self.out(0x80)
-            time.sleep(.05)
-        self.update()
+from motorctl import Ctl
 
 class Canv(tk.Canvas):
     def __init__(self, master, **kw):
@@ -110,7 +42,6 @@ class Canv(tk.Canvas):
         
 root = tk.Tk()
 
-
 ctl = Ctl()
 
 can = Canv(root, width=900, height=900)
@@ -128,10 +59,11 @@ for key, xy in [('Left', (-1, 0)),
     root.bind("<Key-%s>" % key, lambda ev, xy=xy: ctl.move(*xy))
 
 root.bind("<Key-space>", lambda ev: ctl.toggleBlade())
+root.bind("<Key-Escape>", lambda ev: ctl.resetPos())
 
 ctl.move(0,0)
 
-atexit.register(lambda: ctl.out(0))
+
 
 def loop():
     ctl.step()
