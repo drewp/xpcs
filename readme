@@ -1,0 +1,30 @@
+AT45DB041B
+http://www.atmel.com/dyn/products/product_card.asp?part_id=2469
+http://www.digikey.com/scripts/DkSearch/dksus.dll?Detail?Ref=106049&Row=304469&Site=US
+
+
+i will build this h-bridge 4 times:
+http://www.cs.uiowa.edu/~jones/step/circuits.html#practbi
+
+maybe use my optos on the way to an atmel, or just the parallel port.
+
+parport:
+d0 power
+d1 A enable
+d2 A dir1
+d3 A dir2
+d4 B enable
+d5 B dir1
+d6 B dir2
+d7 (reserved0
+
+
+runs great at about 2ms delay between steps
+
+blade-lowering solenoid is 75ohms.
+
+
+X range is 3128 over the mat, which is 10.6cm
+Y range is more than 2733, which is 9.25cm
+cm/step in both directions is .00338
+that's 0.00133 in/step
