@@ -1,9 +1,11 @@
 from __future__ import division
-import time, sys, xmlrpclib, atexit
+import time, sys, xmlrpclib, atexit, math
+from twisted.internet import reactor, tksupport
+import Tkinter as tk
 from IPython.Shell import IPShellEmbed
 from elementtree.ElementTree import ElementTree
 import Numeric as num
-import pygame
+
 
 
 class Motors:
@@ -12,7 +14,7 @@ class Motors:
     def __init__(self):
         self.pos = num.array(ctl.getPosition()[:2])
         self._blade = ctl.getPosition()[2]
-        self.surf = pygame.display.set_mode(num.array([460, 460]))
+#        self.surf = pygame.display.set_mode(num.array([460, 460]))
         self.lastUpdateTime = 0
 
     def blade(self, which=False):
@@ -24,14 +26,14 @@ class Motors:
         """walk to p2 via a 45-degree line and an ortho line"""
         ctl.lineTo(p2[0], p2[1], self._blade)
 
-        pygame.draw.line(self.surf,
-                         {True : (255, 255, 255),
-                          False : (250,  100, 100)}[self._blade],
-                         p2 * self.scl, self.pos * self.scl)
+#        pygame.draw.line(self.surf,
+#                         {True : (255, 255, 255),
+#                          False : (250,  100, 100)}[self._blade],
+#                         p2 * self.scl, self.pos * self.scl)
         self.pos = p2
 
         if time.time() - self.lastUpdateTime > .3:
-            pygame.display.update()
+#            pygame.display.update()
             self.lastUpdateTime = time.time()
 
     def lineTo(self, p2):
@@ -43,35 +45,41 @@ class Motors:
             p = num.floor(startPos + (p2 - startPos) * step / (steps - 1))
             self.moveTo(p)
 
-def stepFromPt(pt):
-    return num.array(pt) * 6 * 8/7 * (-1, 1) * 360/600 * 600/7000 * .9
-
-def tracePath(path):
+def tracePath(transform, path):
     stepFraction = .2
-    print "trace path"
+    #print "   trace path"
+    paths = [] # [[p0, p1, p2], [p3, p4, p5], ...]
+    pts = [] # current segment x,y pairs
     data = parsePathD(path.get('d'))
     for stepType, stepPts in data:
-        print "next part:", stepType, stepPts[0]
+        #print "   next part:", stepType, stepPts[0]
         if stepType == 'M':
-            motors.blade(False)
-            motors.moveTo(stepFromPt(stepPts[0]))
+            if pts:
+                paths.append(pts)
+            pts = [stepPts[0]]
         if stepType == 'L':
-            motors.blade(True)
-            motors.lineTo(stepFromPt(stepPts[0]))
+            pts.append(stepPts[0])
         if stepType == 'C':
-            motors.blade(True)
             # 3 points for the curve
-            startCtl, endCtl = stepFromPt(stepPts[0]), stepFromPt(stepPts[1])
-            startPos = motors.pos
-            endPos = stepFromPt(stepPts[2])
+            startCtl, endCtl = num.array(stepPts[0]), num.array(stepPts[1])
+            startPos = num.array(pts[-1])
+            endPos = num.array(stepPts[2])
             steps = max(num.absolute(endPos - startPos)) * stepFraction
+            steps = max(1, steps)
+            #print "     curve in %s steps" % steps
             for t in range(steps + 1):
                 t /= steps
                 p = (    (1 - t)**3 *        startPos+
                      3 * (1 - t)**2 * t    * startCtl+
                      3 * (1 - t)    * t**2 * endCtl+
                                       t**3 * endPos)
-                motors.lineTo(p)
+                pts.append(p)
+    if pts:
+        paths.append(pts)
+    for path in paths:
+        path[:] = [num.matrixmultiply([pt[0], pt[1], 1],
+                                      transform) for pt in path]
+    return paths
 
 def parsePathD(data):
     words = data.split()
@@ -87,23 +95,104 @@ def parsePathD(data):
             ret.append(('C', pts))
     return ret
 
-def walk(node):
-    for c in node.getchildren():
-        if c.tag == '{http://www.w3.org/2000/svg}path':
-            tracePath(c)
-        walk(c)
+def walk(node, _paths=None, transform=None):
+    if _paths is None:
+        _paths = []
 
+    if transform is None:
+        transform = num.array([[1, 0], [0, 1], [0, 0]])
+
+    children = node.getchildren()
+    for i, c in enumerate(children):
+        print "path child %s of %s" % (i, len(children))
+        if c.get('transform'):
+            s = c.get('transform')
+            assert s.startswith('matrix(')
+            vals = map(float, s[7:-1].split(','))
+            transform = num.reshape(num.array(vals), (3,2))
+            print "child xform", transform
+
+        if c.tag == '{http://www.w3.org/2000/svg}path':
+            newPaths = tracePath(transform, c)
+            print "got %s new paths" % len(newPaths)
+            _paths.extend(newPaths)
+        walk(c, _paths, transform)
+    return _paths
+
+class PathView(tk.Canvas):
+    def __init__(self, master, paths, **kw):
+        tk.Canvas.__init__(self, master, **kw)
+        self.paths = paths
+        self.bind("<Configure>", lambda ev: self.updatePaths())
+        self.update()
+        self.updatePaths()
+
+    def canFromWorld(self, pos):
+        size = num.array([self.winfo_width(), self.winfo_height()])
+        return num.array(pos) / (450, 450) * size
+
+    def updatePaths(self):
+        self.delete('tag')
+        for path in self.paths:
+            self.drawPath('tag', path)
+
+    def drawPath(self, tag, pts):
+        translatedCoords = []
+        skipPts = pts
+        if len(pts) > 100:
+            skipPts = pts[::int(math.ceil(len(pts) / 1000))]
+            skipPts.append(pts[-1])
+            #print "draw %s of %s pts" % (len(skipPts), len(pts))
+        lastPt = None
+        for pt in skipPts:
+            canPt = self.canFromWorld(pt)
+            if (len(translatedCoords) > 4 and
+                lastPt is not None and
+                max(num.absolute(canPt - lastPt)) < 3):
+                continue
+            translatedCoords.extend(canPt)
+            lastPt = canPt
+        line = self.create_line(*translatedCoords, **dict(tag=tag))
+        for ev, attrs in [("<Enter>", dict(fill='red', width=2)),
+                          ("<Leave>", dict(fill='black', width=1))]:
+            self.tag_bind(line, ev,
+                          lambda ev, attrs=attrs: self.itemconfig(line,
+                                                                  **attrs))
+
+class PathList(tk.Listbox):
+    def __init__(self, master):
+        tk.Listbox.__init__(self, master)
+        
 
 ctl = xmlrpclib.ServerProxy("http://localhost:9001")
 atexit.register(ctl.stop)
 motors = Motors()
     
 t = ElementTree(file=open(sys.argv[1]))
-walk(t.getroot())
+paths = walk(t.getroot())
+print len(paths), "total paths"
+
 
 #IPShellEmbed()()
 
 print "done"
-pygame.display.update()
-while 1:
-    pygame.event.wait()
+
+root = tk.Tk()
+root.bind("<Key-Escape>", lambda ev: reactor.stop())
+
+pv = PathView(root, paths, width=500, height=500)
+pv.pack(side='left', fill='both', expand=True)
+pv.update()
+
+pl = PathList(root)
+pl.pack(side='left', fill='y')
+
+
+for path in paths:
+    pl.insert('end', "%r (%s)" % (id(path), len(path)))
+    root.update()
+
+
+tksupport.install(root)
+root.protocol('WM_DELETE_WINDOW', reactor.stop)
+reactor.run()
