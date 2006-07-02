@@ -1,49 +1,16 @@
 from __future__ import division
 import time, sys, xmlrpclib, atexit, math
-from twisted.internet import reactor, tksupport
+from twisted.internet import reactor, tksupport, task
 import Tkinter as tk
-from IPython.Shell import IPShellEmbed
 from elementtree.ElementTree import ElementTree
 import Numeric as num
+from Scientific.Geometry.VectorModule import Vector
 
+inchPerStep = .00133
 
-
-class Motors:
-    pos = (0,0)
-    scl = num.array([1 / 6]) * [-1, 1] # display scaling only
-    def __init__(self):
-        self.pos = num.array(ctl.getPosition()[:2])
-        self._blade = ctl.getPosition()[2]
-#        self.surf = pygame.display.set_mode(num.array([460, 460]))
-        self.lastUpdateTime = 0
-
-    def blade(self, which=False):
-        if self._blade == which:
-            return
-        self._blade = which
-        
-    def moveTo(self, p2):
-        """walk to p2 via a 45-degree line and an ortho line"""
-        ctl.lineTo(p2[0], p2[1], self._blade)
-
-#        pygame.draw.line(self.surf,
-#                         {True : (255, 255, 255),
-#                          False : (250,  100, 100)}[self._blade],
-#                         p2 * self.scl, self.pos * self.scl)
-        self.pos = p2
-
-        if time.time() - self.lastUpdateTime > .3:
-#            pygame.display.update()
-            self.lastUpdateTime = time.time()
-
-    def lineTo(self, p2):
-        """proper line to p2"""            
-        steps = max(num.absolute(p2 - self.pos))
-        print "lineTo", p2, steps
-        startPos = self.pos
-        for step in range(steps):
-            p = num.floor(startPos + (p2 - startPos) * step / (steps - 1))
-            self.moveTo(p)
+def deviceFromSvg(pos):
+    inch = pos / 90 * (360 / 480)
+    return inch / inchPerStep * (1, -1) + (0, 4 / inchPerStep)
 
 def tracePath(transform, path):
     stepFraction = .2
@@ -52,19 +19,31 @@ def tracePath(transform, path):
     pts = [] # current segment x,y pairs
     data = parsePathD(path.get('d'))
     for stepType, stepPts in data:
+        print "%s pts, xform %r" % (len(stepPts), transform)
+        stepPts = [deviceFromSvg(
+            num.matrixmultiply(transform, [pt[0], pt[1], 1])[:2]
+            )
+                   for pt in stepPts]
         #print "   next part:", stepType, stepPts[0]
         if stepType == 'M':
             if pts:
                 paths.append(pts)
             pts = [stepPts[0]]
         if stepType == 'L':
-            pts.append(stepPts[0])
+            p1 = pts[-1]
+            p2 = stepPts[0]
+            steps = max(num.absolute(p2 - p1))
+            for step in range(steps):
+                p = num.floor(p1 + (p2 - p1) * step / (steps - 1))
+                if Vector(p - pts[-1]).length() > 15:
+                    pts.append(p)
+            pts.append(p2)
         if stepType == 'C':
             # 3 points for the curve
             startCtl, endCtl = num.array(stepPts[0]), num.array(stepPts[1])
             startPos = num.array(pts[-1])
             endPos = num.array(stepPts[2])
-            steps = max(num.absolute(endPos - startPos)) * stepFraction
+            steps = max(num.absolute(endPos - startPos))
             steps = max(1, steps)
             #print "     curve in %s steps" % steps
             for t in range(steps + 1):
@@ -73,12 +52,12 @@ def tracePath(transform, path):
                      3 * (1 - t)**2 * t    * startCtl+
                      3 * (1 - t)    * t**2 * endCtl+
                                       t**3 * endPos)
-                pts.append(p)
+                if not pts or Vector(p - pts[-1]).length() > 15:
+                    pts.append(p)
+            pts.append(stepPts[2])
     if pts:
         paths.append(pts)
-    for path in paths:
-        path[:] = [num.matrixmultiply([pt[0], pt[1], 1],
-                                      transform) for pt in path]
+
     return paths
 
 def parsePathD(data):
@@ -100,24 +79,72 @@ def walk(node, _paths=None, transform=None):
         _paths = []
 
     if transform is None:
-        transform = num.array([[1, 0], [0, 1], [0, 0]])
+        transform = num.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
     children = node.getchildren()
-    for i, c in enumerate(children):
+    for i, child in enumerate(children):
+        if child.tag == '{http://www.w3.org/2000/svg}defs':
+            continue
         print "path child %s of %s" % (i, len(children))
-        if c.get('transform'):
-            s = c.get('transform')
+        if child.get('transform'):
+            # currently replacing transform, instead of concatenating them
+            s = child.get('transform')
             assert s.startswith('matrix(')
-            vals = map(float, s[7:-1].split(','))
-            transform = num.reshape(num.array(vals), (3,2))
+            a, b, c, d, e, f = map(float, s[7:-1].split(','))
+            transform = num.array([[a, c, e], [b, d, f], [0, 0, 1]])
             print "child xform", transform
 
-        if c.tag == '{http://www.w3.org/2000/svg}path':
-            newPaths = tracePath(transform, c)
+        if child.tag == '{http://www.w3.org/2000/svg}path':
+            newPaths = tracePath(transform, child)
             print "got %s new paths" % len(newPaths)
             _paths.extend(newPaths)
-        walk(c, _paths, transform)
+        walk(child, _paths, transform)
     return _paths
+
+
+def overshootPath(pts):
+    result = []
+    for i in range(1, len(pts)-3):
+        p2 = pts[i]
+        back = 0
+        i2 = i
+        while back < 40 and i2 > 0:
+            back += Vector(pts[i2 + 1] - pts[i2]).length()
+            i2 -= 1
+        p0 = pts[i2]
+
+        back = 0
+        i2 = i
+        while back < 20 and i2 > 0:
+            back += Vector(pts[i2 + 1] - pts[i2]).length()
+            i2 -= 1
+        p1 = pts[i2]
+
+        try:
+            straight = Vector(p0) + Vector(p1 - p0).normal() * Vector(p2 - p1).length()
+            A = Vector(straight.array - p1)
+            B = Vector(p2 - p1)
+
+            p = Vector(p1) + .5 * A + .5 * B
+
+            p = -1/4 * p0 + -2/4 * p1 + 7/4 * p2
+        except ZeroDivisionError:
+            p = p2
+        result.append(num.array([p[0], p[1]]))
+
+
+    print "loop points"
+    print result[-2]
+    print result[-1]
+    print result[0]
+    print result[1]
+
+    result.insert(0, pts[-1])
+    result.insert(0, .5 * pts[-min(8, len(pts))] + .5 * result[0])
+    result.extend(pts[-3:]) # no overshoot on these
+
+        
+    return result
 
 class PathView(tk.Canvas):
     def __init__(self, master, paths, **kw):
@@ -126,10 +153,13 @@ class PathView(tk.Canvas):
         self.bind("<Configure>", lambda ev: self.updatePaths())
         self.update()
         self.updatePaths()
+        self.cursor = self.create_oval(0,0,0,0, width=3)
+        self.lastUpdate = None
 
     def canFromWorld(self, pos):
         size = num.array([self.winfo_width(), self.winfo_height()])
-        return num.array(pos) / (450, 450) * size
+        return (num.array(pos) / (4 / inchPerStep) * size * (1, -1)
+                + (0, size[1]))
 
     def updatePaths(self):
         self.delete('tag')
@@ -153,44 +183,89 @@ class PathView(tk.Canvas):
             translatedCoords.extend(canPt)
             lastPt = canPt
         line = self.create_line(*translatedCoords, **dict(tag=tag))
+
+
+
+        translatedCoords = []
+        tp = [self.canFromWorld(pt) for pt in overshootPath(pts)]
+        for p in tp:
+            self.create_oval(p[0]-2, p[1]-2, p[0]+2, p[1]+2,
+                             width=0, fill='blue', tag=tag)
+            translatedCoords.extend(p)
+        if len(translatedCoords) >= 4:
+            self.create_line(*translatedCoords, **dict(tag=tag, fill='blue'))
+
+            
+
+        
         for ev, attrs in [("<Enter>", dict(fill='red', width=2)),
                           ("<Leave>", dict(fill='black', width=1))]:
             self.tag_bind(line, ev,
                           lambda ev, attrs=attrs: self.itemconfig(line,
                                                                   **attrs))
+        self.tag_bind(line, "<ButtonPress-1>", lambda ev: self.cut(pts))
+
+    def updateCursor(self):
+        x, y, blade = ctl.getPosition()
+        cx, cy = self.canFromWorld([x, y])
+        self.coords(self.cursor, cx-3, cy-3, cx+3, cy+3)
+        
+    def cut(self, pts):
+        pts = overshootPath(pts)
+        ctl.lineTo(pts[0][0], pts[0][1], False)
+        for p1, p2 in zip(pts[:-1], pts[1:]):
+            self.cutLine(p1, p2)
+        ctl.lineTo(pts[-1][0], pts[-1][1], False)
+
+    def cutLine(self, p1, p2):
+        steps = max(2, max(num.absolute(p2 - p1)))
+        print "lineTo", p2, steps
+        for step in range(int(steps)):
+            p = num.floor(p1 + (p2 - p1) * step / (steps - 1))
+            ctl.lineTo(p[0], p[1], True)
+            now = time.time()
+            if self.lastUpdate is None or now - self.lastUpdate > .2:
+                self.updateCursor()
+                self.update()
+                self.lastUpdate = now
+                
+    def cutAll(self):
+        for path in self.paths:
+            self.cut(path)
+            
 
 class PathList(tk.Listbox):
     def __init__(self, master):
         tk.Listbox.__init__(self, master)
         
 
-ctl = xmlrpclib.ServerProxy("http://localhost:9001")
+ctl = xmlrpclib.ServerProxy("http://bang:9001")
 atexit.register(ctl.stop)
-motors = Motors()
     
 t = ElementTree(file=open(sys.argv[1]))
 paths = walk(t.getroot())
 print len(paths), "total paths"
-
 
 #IPShellEmbed()()
 
 print "done"
 
 root = tk.Tk()
+root.wm_geometry("+560+80")
 root.bind("<Key-Escape>", lambda ev: reactor.stop())
 
-pv = PathView(root, paths, width=500, height=500)
+pv = PathView(root, paths, width=1100, height=1100)
 pv.pack(side='left', fill='both', expand=True)
 pv.update()
+task.LoopingCall(pv.updateCursor).start(.1)
+root.bind("<Control-Key-a>", lambda ev: pv.cutAll())
 
-pl = PathList(root)
-pl.pack(side='left', fill='y')
 
-
-for path in paths:
-    pl.insert('end', "%r (%s)" % (id(path), len(path)))
-    root.update()
+#pl = PathList(root)
+#pl.pack(side='left', fill='y')
+#for path in paths:
+#    pl.insert('end', "%r (%s)" % (id(path), len(path)))
+#    root.update()
 
 
 tksupport.install(root)

@@ -1,6 +1,7 @@
 from __future__ import division
 import atexit, sys, time
 from louie import dispatcher
+from twisted.internet import reactor
 sys.path.append("/home/drewp/projects/light9/light9/io")
 try:
     import parport
@@ -16,6 +17,8 @@ class Ctl:
         self.blade = False
         self.xpos = 0
         self.ypos = 0
+
+        self.offTimer = None
 
         dispatcher.connect(self.dragTo, "dragto")
         self.path = [] # future points to walk to
@@ -47,13 +50,23 @@ class Ctl:
 
     def _step(self):
         if not self.path:
+            if self.offTimer is None or self.offTimer.called:
+                self.offTimer = reactor.callLater(.1, self.off)
             return False
+
+        if self.offTimer is not None and not self.offTimer.called:
+            self.offTimer.reset(.1)
+
         goal = self.path[0]
+        
+        goal = int(goal[0]), int(goal[1]), goal[2]
+        print "at %s, to %s, %s lines left" % (
+            (self.xpos, self.ypos), goal, len(self.path))
+        self.setBlade(goal[2])
         if (self.xpos, self.ypos) == goal[:2]:
             self.path.pop(0)
             dispatcher.send("new path", path=self.path)
             return True
-        self.setBlade(goal[2])
         self.move(cmp(goal[0], self.xpos),
                   cmp(goal[1], self.ypos))
         return True
@@ -90,6 +103,8 @@ class Ctl:
         self.setBlade(not self.blade)
         
     def setBlade(self, which):
+        if which == self.blade:
+            return
         self.blade = which
         if self.blade:
             # blade needs full power to go down

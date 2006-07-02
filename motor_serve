@@ -5,10 +5,9 @@ import motorctl
 class RPC(xmlrpc.XMLRPC):
     def __init__(self, ctl):
         self.ctl = ctl
-        self.loopDelay = .05
-        self.loop = task.LoopingCall(self.ctl.step, runFor=.05)
+        self.loopDelay = .01
+        self.loop = task.LoopingCall(self.ctl.step, runFor=.005)
         self.loop.start(self.loopDelay)
-
 
     def report(self):
         print "current pos: %s %s blade=%s" % (self.ctl.xpos, self.ctl.ypos,
@@ -40,6 +39,18 @@ class RPC(xmlrpc.XMLRPC):
         self.ctl.path = []
         self.xmlrpc_resume()
         return "ok"
+
+    def xmlrpc_zero(self):
+        """set current pos to zero"""
+        self.ctl.xpos = self.ctl.ypos = 0
+        return "ok"
+
+    def xmlrpc_home(self):
+        self.xmlrpc_lineTo(0,0,False)
+        return "ok"
+
+    def xmlrpc_setBlade(self, blade):
+        self.ctl.setBlade(blade)
 
 ctl = motorctl.Ctl()
 
