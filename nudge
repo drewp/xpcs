@@ -1,0 +1,25 @@
+from __future__ import division
+import time, sys, xmlrpclib, atexit, math
+import Tkinter as tk
+
+ctl = xmlrpclib.ServerProxy("http://bang:9001")
+atexit.register(ctl.stop)
+
+root = tk.Tk()
+
+def move(xy):
+    x, y, blade = ctl.getPosition()
+    x += xy[0] * 10
+    y += xy[1] * 10
+    print "lineTo", x, y
+    ctl.lineTo(x, y, blade)
+    
+for key, xy in [('Left', (-1, 0)),
+                ('Right', (1, 0)),
+                ('Up', (0, 1)),
+                ('Down', (0, -1))]:
+    root.bind("<Key-%s>" % key, lambda ev, xy=xy: move(xy))
+root.bind("<Key-Escape>", lambda ev: ctl.zero())
+root.bind("<Key-Home>", lambda ev: ctl.home())
+
+root.mainloop()
