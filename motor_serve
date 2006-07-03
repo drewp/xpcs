@@ -6,7 +6,7 @@ class RPC(xmlrpc.XMLRPC):
     def __init__(self, ctl):
         self.ctl = ctl
         self.loopDelay = .01
-        self.loop = task.LoopingCall(self.ctl.step, runFor=.005)
+        self.loop = task.LoopingCall(self.ctl.step, runFor=.009)
         self.loop.start(self.loopDelay)
 
     def report(self):

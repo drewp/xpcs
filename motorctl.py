@@ -97,7 +97,7 @@ class Ctl:
     def out(self, byte):
         #print hex(byte)
         parport.outdata(byte)
-        time.sleep(.003)
+        time.sleep(.002)
 
     def toggleBlade(self):
         self.setBlade(not self.blade)

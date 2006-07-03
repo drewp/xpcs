@@ -19,7 +19,6 @@ def tracePath(transform, path):
     pts = [] # current segment x,y pairs
     data = parsePathD(path.get('d'))
     for stepType, stepPts in data:
-        print "%s pts, xform %r" % (len(stepPts), transform)
         stepPts = [deviceFromSvg(
             num.matrixmultiply(transform, [pt[0], pt[1], 1])[:2]
             )
@@ -35,7 +34,7 @@ def tracePath(transform, path):
             steps = max(num.absolute(p2 - p1))
             for step in range(steps):
                 p = num.floor(p1 + (p2 - p1) * step / (steps - 1))
-                if Vector(p - pts[-1]).length() > 15:
+                if Vector(p - pts[-1]).length() > 8:
                     pts.append(p)
             pts.append(p2)
         if stepType == 'C':
@@ -52,7 +51,7 @@ def tracePath(transform, path):
                      3 * (1 - t)**2 * t    * startCtl+
                      3 * (1 - t)    * t**2 * endCtl+
                                       t**3 * endPos)
-                if not pts or Vector(p - pts[-1]).length() > 15:
+                if not pts or Vector(p - pts[-1]).length() > 8:
                     pts.append(p)
             pts.append(stepPts[2])
     if pts:
@@ -108,7 +107,7 @@ def overshootPath(pts):
         p2 = pts[i]
         back = 0
         i2 = i
-        while back < 40 and i2 > 0:
+        while back < 30 and i2 > 0:
             back += Vector(pts[i2 + 1] - pts[i2]).length()
             i2 -= 1
         p0 = pts[i2]
@@ -121,11 +120,7 @@ def overshootPath(pts):
         p1 = pts[i2]
 
         try:
-            straight = Vector(p0) + Vector(p1 - p0).normal() * Vector(p2 - p1).length()
-            A = Vector(straight.array - p1)
-            B = Vector(p2 - p1)
-
-            p = Vector(p1) + .5 * A + .5 * B
+           
 
             p = -1/4 * p0 + -2/4 * p1 + 7/4 * p2
         except ZeroDivisionError:
@@ -133,16 +128,9 @@ def overshootPath(pts):
         result.append(num.array([p[0], p[1]]))
 
 
-    print "loop points"
-    print result[-2]
-    print result[-1]
-    print result[0]
-    print result[1]
-
     result.insert(0, pts[-1])
     result.insert(0, .5 * pts[-min(8, len(pts))] + .5 * result[0])
     result.extend(pts[-3:]) # no overshoot on these
-
         
     return result
 
@@ -189,11 +177,12 @@ class PathView(tk.Canvas):
         translatedCoords = []
         tp = [self.canFromWorld(pt) for pt in overshootPath(pts)]
         for p in tp:
-            self.create_oval(p[0]-2, p[1]-2, p[0]+2, p[1]+2,
-                             width=0, fill='blue', tag=tag)
+            #self.create_oval(p[0]-2, p[1]-2, p[0]+2, p[1]+2,
+            #                 width=0, fill='blue', tag=tag)
             translatedCoords.extend(p)
         if len(translatedCoords) >= 4:
-            self.create_line(*translatedCoords, **dict(tag=tag, fill='blue'))
+            l = self.create_line(*translatedCoords, **dict(tag=tag, fill='blue'))
+            self.lower(l)
 
             
 
@@ -230,7 +219,8 @@ class PathView(tk.Canvas):
                 self.lastUpdate = now
                 
     def cutAll(self):
-        for path in self.paths:
+        for i, path in enumerate(self.paths):
+            print "cutting path %s" % i
             self.cut(path)
             
 
