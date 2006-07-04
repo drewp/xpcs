@@ -28,3 +28,7 @@ X range is 3128 over the mat, which is 10.6cm
 Y range is more than 2733, which is 9.25cm
 cm/step in both directions is .00338
 that's 0.00133 in/step
+
+
+potrace -s -o out6.svg <(convert out6.png ppm:-)
+
