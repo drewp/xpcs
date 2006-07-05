@@ -9,8 +9,8 @@ root = tk.Tk()
 
 def move(xy):
     x, y, blade = ctl.getPosition()
-    x += xy[0] * 10
-    y += xy[1] * 10
+    x += xy[0] * 25
+    y += xy[1] * 25
     print "lineTo", x, y
     ctl.lineTo(x, y, blade)
     

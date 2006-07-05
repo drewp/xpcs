@@ -72,6 +72,10 @@ class Ctl:
         return True
 
     def move(self, dx, dy):
+        if dx == dy == 0:
+            return
+        if abs(dx) > 1 or abs(dy) > 1:
+            print "========================= dx=%s dy=%s ======================" % (dx,dy)
         self.xpos += dx
         self.ypos += dy
         dispatcher.send("coords", x=self.xpos, y=self.ypos)
@@ -97,7 +101,9 @@ class Ctl:
     def out(self, byte):
         #print hex(byte)
         parport.outdata(byte)
-        time.sleep(.002)
+        # at .0014, Y loses steps
+        # at .002, Y still loses
+        time.sleep(.003)
 
     def toggleBlade(self):
         self.setBlade(not self.blade)
