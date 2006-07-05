@@ -60,8 +60,8 @@ class Ctl:
         goal = self.path[0]
         
         goal = int(goal[0]), int(goal[1]), goal[2]
-        print "at %s, to %s, %s lines left" % (
-            (self.xpos, self.ypos), goal, len(self.path))
+        #print "at %s, to %s, %s lines left" % (
+        #    (self.xpos, self.ypos), goal, len(self.path))
         self.setBlade(goal[2])
         if (self.xpos, self.ypos) == goal[:2]:
             self.path.pop(0)

@@ -17,7 +17,7 @@ class RPC(xmlrpc.XMLRPC):
         return self.ctl.xpos, self.ctl.ypos, self.ctl.blade
 
     def xmlrpc_lineTo(self, x, y, blade):
-        self.report()
+#        self.report()
         self.ctl.dragTo(x, y, blade=blade)
         return "ok"
 

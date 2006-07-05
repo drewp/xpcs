@@ -32,3 +32,57 @@ that's 0.00133 in/step
 
 potrace -s -o out6.svg <(convert out6.png ppm:-)
 
+
+priority path 10    path took 10.7 sec
+priority path 7    path took 7.2 sec
+priority path 9    path took 9.5 sec
+priority path 12    path took 11.0 sec
+priority path 2    path took 24.9 sec
+priority path 0    path took 18.9 sec
+priority path 8    path took 7.6 sec
+priority path 16    path took 5.8 sec
+priority path 17    path took 7.9 sec
+priority path 15    path took 4.0 sec
+priority path 25    path took 2.9 sec
+priority path 24    path took 7.7 sec
+priority path 23    path took 3.9 sec
+priority path 22    path took 8.6 sec
+priority path 21    path took 4.9 sec
+priority path 20    path took 10.6 sec
+priority path 38    path took 5.1 sec
+priority path 37    path took 6.5 sec
+priority path 31    path took 10.8 sec
+priority path 33    path took 5.4 sec
+priority path 35    path took 4.5 sec
+priority path 34    path took 6.3 sec
+priority path 32    path took 4.9 sec
+priority path 19    path took 17.8 sec
+remaining path 1    path took 7.0 sec
+remaining path 3    path took 19.6 sec
+remaining path 4    path took 8.0 sec
+remaining path 5    path took 6.1 sec
+remaining path 6    path took 2.9 sec
+remaining path 11    path took 3.7 sec
+remaining path 13    path took 9.0 sec
+remaining path 14    path took 10.9 sec
+remaining path 18    path took 8.2 sec
+remaining path 26    path took 7.5 sec
+remaining path 27    path took 7.9 sec
+remaining path 28    path took 9.1 sec
+remaining path 29    path took 14.6 sec
+remaining path 30    path took 33.6 sec
+remaining path 36    path took 7.6 sec
+remaining path 39    path took 22.9 sec
+remaining path 40    path took 8.6 sec
+remaining path 41    path took 14.9 sec
+remaining path 42    path took 24.9 sec
+remaining path 43    path took 18.4 sec
+remaining path 44    path took 5.4 sec
+remaining path 45    path took 9.5 sec
+remaining path 46    path took 6.0 sec
+remaining path 47    path took 9.1 sec
+cut all in 482.8 sec
+
+
+blade 1 cut tests and outs 1..4
+blade 2 in at 2006-07-04T23:00:00 

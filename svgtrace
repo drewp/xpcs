@@ -209,7 +209,12 @@ class PathView(tk.Canvas):
     def cutAll(self):
         t1 = time.time()
         left = dict(enumerate(self.paths[:]))
-        for i in [10, 7, 9, 12, 2, 0, 8, 16, # top building
+        # some crazy timing bug where the blade stopped releasing
+        # after this path, but adding extra delay makes it
+        # ok. happened on out #6.
+        self.cut(self.paths[10])
+        time.sleep(2)
+        for i in [7, 9, 12, 2, 0, 8, 16, # top building
                   17, 15, # slivers below shin
 
                   25, 24, 23, 22, 21, # windows
