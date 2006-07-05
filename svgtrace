@@ -6,6 +6,7 @@ from elementtree.ElementTree import ElementTree
 import Numeric as num
 from Scientific.Geometry.VectorModule import Vector
 
+import overshoot
 inchPerStep = .00133
 
 def deviceFromSvg(pos):
@@ -101,46 +102,12 @@ def walk(node, _paths=None, transform=None):
     return _paths
 
 
-def overshootPath(pts):
-    result = []
-    for i in range(1, len(pts)-3):
-        p2 = pts[i]
-        back = 0
-        i2 = i
-        while back < 30 and i2 > 0:
-            back += Vector(pts[i2 + 1] - pts[i2]).length()
-            i2 -= 1
-        p0 = pts[i2]
-
-        back = 0
-        i2 = i
-        while back < 20 and i2 > 0:
-            back += Vector(pts[i2 + 1] - pts[i2]).length()
-            i2 -= 1
-        p1 = pts[i2]
-
-        try:
-           
-
-            p = -1/4 * p0 + -2/4 * p1 + 7/4 * p2
-        except ZeroDivisionError:
-            p = p2
-        result.append(num.array([p[0], p[1]]))
-
-
-    result.insert(0, pts[-1])
-    result.insert(0, .5 * pts[-min(8, len(pts))] + .5 * result[0])
-    result.extend(pts[-3:]) # no overshoot on these
-        
-    return result
-
 class PathView(tk.Canvas):
     def __init__(self, master, paths, **kw):
-        tk.Canvas.__init__(self, master, **kw)
+        tk.Canvas.__init__(self, master, closeenough=5, **kw)
         self.paths = paths
         self.bind("<Configure>", lambda ev: self.updatePaths())
         self.update()
-        self.updatePaths()
         self.cursor = self.create_oval(0,0,0,0, width=3)
         self.lastUpdate = None
 
@@ -151,10 +118,20 @@ class PathView(tk.Canvas):
 
     def updatePaths(self):
         self.delete('tag')
-        for path in self.paths:
-            self.drawPath('tag', path)
+        for i, path in enumerate(self.paths):
+            self.drawPath('tag', path, i)
+        self.updateOvershoot()
 
-    def drawPath(self, tag, pts):
+    def updateOvershoot(self):
+        reload(overshoot)
+        print "reload overshoot"
+        self.delete('overshoot')
+        for path in self.paths:
+            self.drawOvershoot(path)
+        print "finished drawing"
+        
+
+    def drawPath(self, tag, pts, index):
         translatedCoords = []
         skipPts = pts
         if len(pts) > 100:
@@ -171,28 +148,36 @@ class PathView(tk.Canvas):
             translatedCoords.extend(canPt)
             lastPt = canPt
         line = self.create_line(*translatedCoords, **dict(tag=tag))
-
-
-
-        translatedCoords = []
-        tp = [self.canFromWorld(pt) for pt in overshootPath(pts)]
-        for p in tp:
-            #self.create_oval(p[0]-2, p[1]-2, p[0]+2, p[1]+2,
-            #                 width=0, fill='blue', tag=tag)
-            translatedCoords.extend(p)
-        if len(translatedCoords) >= 4:
-            l = self.create_line(*translatedCoords, **dict(tag=tag, fill='blue'))
-            self.lower(l)
-
-            
-
         
+        self.create_text(translatedCoords[0], translatedCoords[1]+10,
+                         text=str(index), font="6x10", fill='red', tag=tag)
+
         for ev, attrs in [("<Enter>", dict(fill='red', width=2)),
                           ("<Leave>", dict(fill='black', width=1))]:
             self.tag_bind(line, ev,
                           lambda ev, attrs=attrs: self.itemconfig(line,
                                                                   **attrs))
-        self.tag_bind(line, "<ButtonPress-1>", lambda ev: self.cut(pts))
+        for ev, cmd in [("<ButtonPress-1>", lambda ev: self.cut(pts)),
+                        ("<ButtonPress-2>", lambda ev: self.listPath(index)),
+                        ]:
+            self.tag_bind(line, ev, cmd)
+        
+    def listPath(self, index):
+        print "path %s (%s pts)" % (index, len(self.paths[index]))
+
+    def drawOvershoot(self, pts):
+
+        translatedCoords = []
+        tp = [self.canFromWorld(pt) for pt in overshoot.overshootPath(pts)]
+        for p in tp:
+            #self.create_oval(p[0]-2, p[1]-2, p[0]+2, p[1]+2,
+            #                 width=0, fill='blue', tag=tag)
+            translatedCoords.extend(p)
+        if len(translatedCoords) >= 4:
+            l = self.create_line(*translatedCoords, **dict(tag='overshoot', fill='blue'))
+            self.lower(l)
+
+        
 
     def updateCursor(self):
         x, y, blade = ctl.getPosition()
@@ -200,16 +185,19 @@ class PathView(tk.Canvas):
         self.coords(self.cursor, cx-3, cy-3, cx+3, cy+3)
         
     def cut(self, pts):
-        pts = overshootPath(pts)
+        t1 = time.time()
+        pts = overshoot.overshootPath(pts)
         ctl.lineTo(pts[0][0], pts[0][1], False)
         for p1, p2 in zip(pts[:-1], pts[1:]):
             self.cutLine(p1, p2)
         ctl.lineTo(pts[-1][0], pts[-1][1], False)
+        print "path took %.1f sec" % (time.time() - t1)
 
     def cutLine(self, p1, p2):
-        steps = max(2, max(num.absolute(p2 - p1)))
-        print "lineTo", p2, steps
-        for step in range(int(steps)):
+        coarse = .3 # reduce the fine steps into crude ones
+        steps = int(max(2, coarse * max(num.absolute(p2 - p1))))
+        #print "lineTo", p2, steps
+        for step in range(steps):
             p = num.floor(p1 + (p2 - p1) * step / (steps - 1))
             ctl.lineTo(p[0], p[1], True)
             now = time.time()
@@ -219,9 +207,23 @@ class PathView(tk.Canvas):
                 self.lastUpdate = now
                 
     def cutAll(self):
-        for i, path in enumerate(self.paths):
-            print "cutting path %s" % i
-            self.cut(path)
+        t1 = time.time()
+        left = dict(enumerate(self.paths[:]))
+        for i in [10, 7, 9, 12, 2, 0, 8, 16, # top building
+                  17, 15, # slivers below shin
+
+                  25, 24, 23, 22, 21, # windows
+                  20, 38, 37, 31, 33, 35, 34, 32,
+                  19, 
+                  ]:
+            print "priority path", i
+            self.cut(self.paths[i])
+            del left[i]
+        for i, p in sorted(left.items()):
+            print "remaining path", i
+            self.cut(p)
+
+        print "cut all in %.1f sec" % (time.time() - t1)
             
 
 class PathList(tk.Listbox):
@@ -249,6 +251,10 @@ pv.pack(side='left', fill='both', expand=True)
 pv.update()
 task.LoopingCall(pv.updateCursor).start(.1)
 root.bind("<Control-Key-a>", lambda ev: pv.cutAll())
+root.bind("<Control-Key-r>", lambda ev: pv.updateOvershoot())
+#root.bind("<Key-l>", lambda ev: pv.event_generate("<Key-l>", x=ev.x, y=ev.y, state=ev.state, time=ev.time, serial=ev.serial))
+#pv.bind("<Key-l>", lambda ev: sys.stdout.write("pvl\n"))
+#root.tk_focusFollowsMouse()
 
 
 #pl = PathList(root)
