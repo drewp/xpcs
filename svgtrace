@@ -213,13 +213,18 @@ class PathView(tk.Canvas):
         # after this path, but adding extra delay makes it
         # ok. happened on out #6.
         self.cut(self.paths[10])
+        del left[10]
         time.sleep(2)
         for i in [7, 9, 12, 2, 0, 8, 16, # top building
                   17, 15, # slivers below shin
 
                   25, 24, 23, 22, 21, # windows
                   20, 38, 37, 31, 33, 35, 34, 32,
-                  19, 
+                  19,
+
+                  # right slivers (to avoid long trips)
+                  1, 5, 6, 4, 11, 18, 28, 36,
+                  
                   ]:
             print "priority path", i
             self.cut(self.paths[i])
@@ -236,7 +241,7 @@ class PathList(tk.Listbox):
         tk.Listbox.__init__(self, master)
         
 
-ctl = xmlrpclib.ServerProxy("http://bang:9001")
+ctl = xmlrpclib.ServerProxy("http://10.1.0.1:9001")
 atexit.register(ctl.stop)
     
 t = ElementTree(file=open(sys.argv[1]))
