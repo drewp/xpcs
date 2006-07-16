@@ -19,6 +19,7 @@ class Ctl:
         self.ypos = 0
 
         self.offTimer = None
+        self.lastPickup = None
 
         dispatcher.connect(self.dragTo, "dragto")
         self.path = [] # future points to walk to
@@ -47,6 +48,7 @@ class Ctl:
         more = True
         while time.time() - start < .05 and more:
             more = self._step()
+        return more
 
     def _step(self):
         if not self.path:
@@ -116,4 +118,11 @@ class Ctl:
             # blade needs full power to go down
             self.out(0x80)
             time.sleep(.05)
+        else:
+            self.out(0x00)
+            # blade-up has relay problems- it sticks
+            if time.time() - 10 > self.lastPickup:
+                time.sleep(.5)
+            self.lastPickup = time.time()
+            time.sleep(.1)
         self.update()
