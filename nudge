@@ -21,5 +21,7 @@ for key, xy in [('Left', (-1, 0)),
     root.bind("<Key-%s>" % key, lambda ev, xy=xy: move(xy))
 root.bind("<Key-Escape>", lambda ev: ctl.zero())
 root.bind("<Key-Home>", lambda ev: ctl.home())
+root.bind("<Key-f>", lambda ev: ctl.flush())
+root.bind("<Key-l>", lambda ev: ctl.readLog())
 
 root.mainloop()

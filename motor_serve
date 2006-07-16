@@ -1,3 +1,4 @@
+import time
 from twisted.web import xmlrpc, server
 from twisted.internet import reactor, task
 import motorctl
@@ -16,9 +17,11 @@ class RPC(xmlrpc.XMLRPC):
         """(x, y, blade)"""
         return self.ctl.xpos, self.ctl.ypos, self.ctl.blade
 
-    def xmlrpc_lineTo(self, x, y, blade):
-#        self.report()
+    def xmlrpc_lineTo(self, x, y, blade, _quiet=False):
+        if not _quiet:
+            self.report()
         self.ctl.dragTo(x, y, blade=blade)
+        print >>logfile, "%s %s %s" % (x, y, blade)
         return "ok"
 
     def xmlrpc_pause(self):
@@ -51,11 +54,47 @@ class RPC(xmlrpc.XMLRPC):
 
     def xmlrpc_setBlade(self, blade):
         self.ctl.setBlade(blade)
+        print >>logfile, "setBlade %s" % blade
+
+    def xmlrpc_readLog(self):
+        print "reading back log"
+        for line in open("moves.log"):
+            x, y, blade = line.split()
+            x, y = map(float, (x, y))
+            blade = blade == "True"
+            self.xmlrpc_lineTo(x, y, blade, _quiet=True)
+        return "ok"
+        
+    def xmlrpc_flush(self):
+        more = True
+        print "running whole path - no network, ctrl-c to stop"
+        t1 = time.time()
+        lastDot = None
+        try:
+            while more:
+                more = self.ctl.step()
+                if time.time() - 2 > lastDot:
+                    print "running for %.1f sec.." % (time.time() - t1)
+                    lastDot = time.time()
+        except KeyboardInterrupt:
+            print "flush cancelled"
+        print "flushed for %.1f sec" % (time.time() - t1)
+        return "ok"
 
 ctl = motorctl.Ctl()
+
+#logfile = open("moves.log", "w")
+logfile = open("/dev/null", "w")
 
 serv = RPC(ctl)
 reactor.listenTCP(9001, server.Site(serv))
 print "listening on 9001"
 
+serv.xmlrpc_readLog()
+serv.xmlrpc_flush()
+serv.xmlrpc_stop()
+
+print "now start reactor"
 reactor.run()
+
+logfile.close()
