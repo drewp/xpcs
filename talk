@@ -1,0 +1,23 @@
+update darcs
+sort imgs
+safe mode of gui
+diagrams of sharpening and closing
+
+hw:
+stepper controller chips
+reed relay for more power
+
+art:
+comp with gimp
+potrace -> svg
+inktrace cleanup
+
+code:
+special delay to let relay unstick
+sort curves to spoil quickly
+networked output code to run on different box than gui
+tk canvas gui
+xmlrpc/dns delay
+curve sharpening and closing
+parsing and tesselating svg
+
