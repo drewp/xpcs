@@ -96,6 +96,15 @@ after #24, i recentered one nudge to the right
 #46 didn't stick well at all (during the hot daytime). new mat.
 
 
+To run more:
+
+run nudge on dash
+
+run motor_serve as root on bang. currently, it will playback log first
+and then go home. to not do that, edit the code so it doesn't play
+log. then use svgtrace to load an svg and run curves
+
+
 
 notes:
 
